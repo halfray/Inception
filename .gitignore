@@ -1,0 +1,7 @@
+/cloudera/parcel/*
+/cloudera/rpm/*
+/cloudera/repo/*
+.DS_Store/*
+.vagrant/
+playbook.retry
+*.swp

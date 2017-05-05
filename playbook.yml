@@ -1,0 +1,138 @@
+---
+- name:  disable selinux 
+  hosts: clusters 
+  remote_user: vagrant 
+  become: true
+  gather_facts: false
+  tasks:
+    - name: check if we need to reboot
+      stat: path=/etc/first_update_reboot
+      register: do_i_need_reboot
+    - name: install need yum
+      yum: name=libselinux-python state=installed 
+    - name: disable selinux
+      selinux: state=disabled 
+    - name: reboot machine
+      shell: shutdown -r now  
+      async: 0
+      poll: 0
+      when: do_i_need_reboot.stat.exists == False
+    - name:  waiting for server to come back 
+      wait_for: host={{ ansible_ssh_host }} port=22 timeout ={{ 5 * 60 }} delay=90 state=started
+      delegate_to: 127.0.0.1
+      when: do_i_need_reboot.stat.exists == False
+
+- name:  ensure  group and users in clusters 
+  hosts: clusters 
+  remote_user: vagrant 
+  become: true
+  gather_facts: false
+  tasks:
+    - name: ensure group in clusters 
+      group: name={{ hadoop_group}} state=present
+    - name: ensure users in clusters 
+      user: name={{ hadoop_user }} group={{ hadoop_group}}  generate_ssh_key=yes 
+    - name: update users password 
+      user: name={{ hadoop_user }} password={{ hadoop_user_passwd}} 
+
+- name:  ensure install basic environment 
+  hosts: clusters 
+  remote_user: vagrant 
+  become: true
+  gather_facts: true 
+  tasks:
+    - name: install ntp 
+      yum: name=ntp state=installed
+    - name: run ntp
+      service: name=ntpd state=started
+    - name: set hostname
+      hostname: name={{ inventory_hostname }}
+      tags: test
+    - name: debug hostname
+      debug: msg={{ inventory_hostname }} 
+      tags: test
+    - name: Generate /etc/hosts file 
+      template:
+        src=hosts.j2
+        dest=/etc/hosts
+      tags: test
+ 
+- name: collect public key in clusters and push to every one in clusters
+  hosts: clusters
+  become: true
+  gather_facts: false
+  tasks:
+     - name: fetch all clusters public key
+       shell: cat {{ lookup('pipe', 'echo ~{{ hadoop_user }}')}}/.ssh/id_rsa.pub
+       register: ssh_keys
+
+     - name: debug public key
+       debug: msg="{{ ssh_keys.stdout }}"
+
+     - name: deploy keys on all servers
+       authorized_key: user="{{ hadoop_user }}" key="{{ item[0] }}"
+       delegate_to: "{{ item[1] }}"
+       with_nested:
+         -  "{{ ssh_keys.stdout }}"
+         -  "{{ groups['clusters'] }}"
+
+- name: share fingerprints to hadoop clusters
+  hosts: clusters
+  become: true
+  become_user: "{{ hadoop_user }}"
+  gather_facts: false
+  tasks:
+     - name: debug  machine fingerprints to know_hosts
+       debug: msg={{ lookup('pipe', 'ssh-keyscan -H -T 1 {{ hostvars[item]["ansible_ssh_host"] }}') }}
+       with_items: "{{ groups['clusters'] }}"
+       tags: test
+
+     - name: add each machine fingerprints to know_hosts
+       known_hosts: host={{hostvars[item]["ansible_ssh_host"]}} state=present key={{ lookup('pipe', 'ssh-keyscan -H -T 1 {{ hostvars[item]["ansible_ssh_host"] }}') }}
+       with_items: "{{ groups['clusters'] }}"
+       tags: test
+
+- name: copy file to clusters
+  hosts: clusters
+  become: true
+  become_user: "{{ hadoop_user }}"
+  gather_facts: false
+  tasks:
+     - name: copy repo file
+       copy: src="{{ item }}" dest=/etc/yum.repos.d/
+       with_fileglob: ./cloudera/repo/*.repo
+
+     - name: copy rpm file
+       copy: src="{{ item }}" dest=/tmp/   mode=0777
+       with_fileglob: ./cloudera/rpm/*.rpm
+
+     - name: install rpm file
+       shell: yum --disablerepo=cloudera-manager -y install /tmp/*.rpm   
+       ignore_errors: true
+
+     - name: ensure path is exists 
+       file: path=/opt/cloudera/parcel-repo state=directory 
+
+     - name: copy parcel file 
+       copy: src="{{item}}" dest=/opt/cloudera/parcel-repo/ 
+       with_fileglob: ./cloudera/parcel/*
+
+- name: run in master 
+  hosts: "{{ master }}"
+  become: true
+  gather_facts: false
+  tasks:
+     - name: use postgre db  
+       command: /etc/init.d/cloudera-scm-server-db start 
+       ignore_errors: true
+
+     - name: start server 
+       command: /etc/init.d/cloudera-scm-server start 
+       ignore_errors: true
+
+     - name: mannual operate
+       debug: msg='Have Ready,visit http://master:7180'
+
+
+
+
