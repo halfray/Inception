@@ -1,5 +1,7 @@
 # Inception 
- 使用vagrant创建虚拟环境,并通过Cloudera Manager 安装Hadoop集群
+ 使用vagrant创建虚拟环境,并通过Cloudera Manager 离线安装Hadoop集群
+
+ *将需要部署的离线文件放到cloudera目录下的repo,rpm和parcel文件夹中
 
 
 ### 通过vagrant完成的虚拟机环境准备
@@ -24,7 +26,7 @@
 1. 创建需要部署用的账号: 当前为root (必须制定密码: 当前为root)
 2. 打通各账号服务器之间的免密ssh登录服务
 
-- 拷贝离线文件，将需要部署的离线文件放到cloudera目录下的repo,rpm和parcel文件夹中 
+- 拷贝离线文件 
 1. copy文件到部署服务器
 2. 执行rpm文件
 3. 在master节点上启动db服务和server服务
